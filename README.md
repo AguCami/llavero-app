@@ -21,6 +21,17 @@ npm run build    # genera dist/
 npm run preview  # sirve dist/ para revisarlo
 ```
 
+## Versión en un solo archivo (sin instalar nada)
+
+```bash
+npm run build:single   # genera dist-single/llavero-3d.html
+```
+
+Empotra la app entera —JavaScript, estilos y el SVG de ejemplo— en un único
+HTML de ~0,8 MB, sin ninguna dependencia externa. Se abre haciendo doble clic,
+funciona sin servidor y sin conexión, y la descarga del STL sigue andando.
+Es la forma de usar la app en una máquina donde no se puede instalar Node.
+
 ## Publicarla en GitHub Pages
 
 El repo trae el flujo `.github/workflows/deploy.yml`, que compila y publica en
