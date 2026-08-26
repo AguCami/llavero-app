@@ -1,0 +1,80 @@
+# Llavero 3D
+
+Web app para convertir una imagen vectorial (SVG) en un llavero listo para
+imprimir en 3D. Subís el vector, lo editás en el navegador —volumen, relieve,
+grabado, base y anilla— y te descargás el **STL** en milímetros.
+
+Todo el procesamiento ocurre en el navegador: no se sube ningún archivo a
+ningún servidor.
+
+## Uso
+
+```bash
+npm install
+npm run dev      # http://localhost:5173
+```
+
+Para publicarlo como sitio estático:
+
+```bash
+npm run build    # genera dist/
+npm run preview  # sirve dist/ para revisarlo
+```
+
+## Cómo se usa la app
+
+1. **Cargá tu SVG** (o tocá «Probar ejemplo»). Cada trazo del archivo se
+   convierte en una capa editable.
+2. **Elegí el tamaño**: ancho en milímetros, rotación y espejado.
+3. **Configurá la base**:
+   - *Contorno*: sigue la silueta del dibujo con un margen uniforme, al estilo
+     sticker. Es el modo recomendado.
+   - *Silueta*: la placa es exactamente la silueta del dibujo.
+   - *Rectángulo* / *Círculo*: placa geométrica con margen.
+   - *Sin base*: sólo las formas, sin placa (tienen que solaparse entre sí para
+     que salga una única pieza).
+4. **Ajustá la anilla**: diámetro del agujero, grosor del material alrededor,
+   posición angular y cuánto sobresale. La pestaña se funde con la placa con un
+   radio de acuerdo, que es donde más se rompen los llaveros.
+5. **Editá cada capa**:
+   - *Relieve*: sobresale por encima de la base, con altura y bisel propios.
+   - *Grabado*: se hunde en la base a la profundidad indicada.
+   - *Calado*: atraviesa la placa de lado a lado.
+   - *Oculta*: no se incluye en el modelo.
+6. **Descargá el STL**. «STL por color» exporta un archivo por color, para
+   impresión multimaterial o para imprimir cada pieza en un filamento distinto.
+
+## Preparar el SVG
+
+- Tienen que ser **formas rellenas**. Un trazo sin relleno (sólo `stroke`) se
+  rellena automáticamente y casi nunca es lo que querés: convertilo antes a
+  curvas (Inkscape: *Trayecto → Contorno a trayecto*).
+- Un PNG o JPG no sirve: hay que vectorizarlo primero (Inkscape: *Trayecto →
+  Vectorizar mapa de bits*).
+- Los degradados y patrones (`url(#...)`) se ignoran; sólo se usa el color
+  plano como color de vista previa.
+- Cada `path` del archivo es una capa. Si querés controlar partes por separado,
+  separalas en trazos distintos antes de exportar.
+
+## Recomendaciones de impresión
+
+- Base de 3 mm y anilla con al menos 2 mm de material alrededor del agujero.
+- Agujero de 4 mm para argollas de llavero típicas.
+- Relieves de 0,8–1,5 mm: suficientes para que se noten sin alargar la impresión.
+- El modelo se exporta apoyado en Z = 0 y centrado, listo para laminar sin
+  soportes.
+
+## Cómo está hecho
+
+- **React + TypeScript + Vite** para la interfaz, **three.js** para geometría y
+  vista previa.
+- `src/lib/svg.ts` convierte el SVG en capas normalizadas (eje Y hacia arriba,
+  centradas, ancho 1).
+- `src/lib/outline.ts` calcula el contorno con margen: rasteriza la silueta,
+  aplica una transformada de distancia euclídea exacta y vuelve a vectorizarla
+  con marching squares. También resuelve la unión de formas y el radio de
+  acuerdo de los entrantes.
+- `src/lib/model.ts` arma el sólido: placa base (en losas cuando hay grabados),
+  pestaña de la anilla, calados y relieves. Cada pieza se valida como malla
+  cerrada antes de darla por buena.
+- `src/lib/exporters.ts` escribe el STL binario en milímetros.
