@@ -21,6 +21,18 @@ npm run build    # genera dist/
 npm run preview  # sirve dist/ para revisarlo
 ```
 
+## Publicarla en GitHub Pages
+
+El repo trae el flujo `.github/workflows/deploy.yml`, que compila y publica en
+cada push. Sólo hay que habilitarlo una vez:
+
+1. En GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. Volvé a lanzar el flujo (**Actions → Publicar en GitHub Pages → Run workflow**)
+   o hacé cualquier push.
+
+Queda en `https://agucami.github.io/llavero-app/`. Las rutas del build son
+relativas, así que también funciona en la raíz de un dominio propio.
+
 ## Cómo se usa la app
 
 1. **Cargá tu SVG** (o tocá «Probar ejemplo»). Cada trazo del archivo se
