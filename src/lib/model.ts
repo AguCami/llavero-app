@@ -343,7 +343,6 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   }
 
   const plateThickness = base.thickness;
-  const reliefBottom = hasPlate ? plateThickness : 0;
   const reliefHeights = drawing.filter((d) => d.layer.mode === 'relief').map((d) => d.layer.height);
   const tabThickness = hasPlate ? plateThickness : Math.max(1.2, ...reliefHeights);
 
@@ -351,67 +350,102 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   const report = { bevelDropped: 0 };
   const cutShapes = drawing.filter((d) => d.layer.mode === 'cut').flatMap((d) => d.shapes);
 
-  /** Añade a la forma los calados, los grabados indicados y el agujero de la anilla. */
-  const punch = (shape: Shape, extraHoles: Shape[], withRing: boolean): Shape => {
-    const result = withHoles(shape, [...cutShapes, ...extraHoles], skipped);
-    if (withRing && ringHole && pointInRing(ringHole, result.getPoints(CURVE_SEGMENTS))) {
+  interface PunchOptions {
+    /** Grabados a materializar en esta losa. */
+    engrave?: Shape[];
+    /** Los calados no atraviesan el fondo macizo. */
+    cuts?: boolean;
+  }
+
+  const punch = (shape: Shape, options: PunchOptions = {}): Shape => {
+    const holes = [...(options.cuts === false ? [] : cutShapes), ...(options.engrave ?? [])];
+    const result = withHoles(shape, holes, skipped);
+    // El agujero de la anilla sí atraviesa todo: para eso está.
+    if (ringHole && pointInRing(ringHole, result.getPoints(CURVE_SEGMENTS))) {
       result.holes.push(circlePath(ringHole.x, ringHole.y, ring.holeDiameter / 2));
     }
     return result;
   };
 
-  // 3. Placa base: se corta en losas para materializar los grabados.
-  if (hasPlate) {
+  // 3. Fondo macizo: una losa continua bajo todo el modelo, que ni los
+  // grabados ni los calados perforan. Garantiza que la cara de abajo sea
+  // plana y de una pieza en cualquier modo de base.
+  const totalThickness = hasPlate ? plateThickness : tabThickness;
+  const floorThickness = Math.max(0, Math.min(base.floor, totalThickness - 0.2));
+  const footprint = hasPlate
+    ? baseShapes
+    : outlineShapes([...allShapes, ...tabShapes], { margin: 0, smoothing: 0, fillet: MIN_OVERLAP });
+  const hasFloor = floorThickness > 0.02 && footprint.length > 0;
+
+  if (hasFloor) {
+    const slab = footprint.map((shape) => punch(shape, { cuts: false }));
+    // Se solapa con lo de arriba para que su chaflán superior quede oculto.
+    const geometry = extrude(slab, floorThickness + MIN_OVERLAP, base.bevel, report);
+    group.add(makeMesh(geometry, base.color, 0, 'fondo'));
+  }
+
+  // 4. Resto de la placa, cortada en losas para materializar los grabados.
+  const plateBottom = hasFloor ? floorThickness : 0;
+  const plateHeight = plateThickness - plateBottom;
+  const maxEngrave = Math.max(0, plateHeight - 0.4);
+
+  if (hasPlate && plateHeight > 0.02) {
     const engraved = drawing.filter((d) => d.layer.mode === 'engrave');
-    const depths = [...new Set(engraved.map((d) => Math.min(d.layer.height, plateThickness - 0.4)))]
+    const depths = [...new Set(engraved.map((d) => Math.min(d.layer.height, maxEngrave)))]
       .filter((depth) => depth > 0.02)
       .sort((a, b) => a - b);
 
     if (!depths.length) {
-      const geometry = extrude(baseShapes.map((shape) => punch(shape, [], true)), plateThickness, base.bevel, report);
-      group.add(makeMesh(geometry, base.color, 0, 'base'));
+      const geometry = extrude(
+        baseShapes.map((shape) => punch(shape)),
+        plateHeight,
+        hasFloor ? 0 : base.bevel,
+        report,
+      );
+      group.add(makeMesh(geometry, base.color, plateBottom, 'base'));
     } else {
       const levels = [0, ...depths];
       for (let k = 0; k < levels.length - 1; k++) {
         const top = plateThickness - levels[k];
         const bottom = plateThickness - levels[k + 1];
-        const holes = engraved
-          .filter((d) => Math.min(d.layer.height, plateThickness - 0.4) >= levels[k + 1] - 1e-6)
+        const engrave = engraved
+          .filter((d) => Math.min(d.layer.height, maxEngrave) >= levels[k + 1] - 1e-6)
           .flatMap((d) => d.shapes);
-        const slab = baseShapes.map((shape) => punch(shape, holes, true));
+        const slab = baseShapes.map((shape) => punch(shape, { engrave }));
         group.add(makeMesh(extrude(slab, top - bottom, 0), base.color, bottom, `base-nivel-${k}`));
       }
       const deepest = levels[levels.length - 1];
-      const bottomThickness = plateThickness - deepest;
-      if (bottomThickness > 0.02) {
-        // La losa de abajo se solapa con la de arriba para que su chaflán
-        // superior quede dentro del sólido y no dibuje un surco en el canto.
-        const overlap = Math.min(base.bevel, deepest);
+      const restThickness = plateHeight - deepest;
+      if (restThickness > 0.02) {
+        const overlap = Math.min(Math.max(base.bevel, MIN_OVERLAP), deepest);
         const geometry = extrude(
-          baseShapes.map((shape) => punch(shape, [], true)),
-          bottomThickness + overlap,
-          base.bevel,
+          baseShapes.map((shape) => punch(shape)),
+          restThickness + overlap,
+          hasFloor ? 0 : base.bevel,
           report,
         );
-        group.add(makeMesh(geometry, base.color, 0, 'base-fondo'));
+        group.add(makeMesh(geometry, base.color, plateBottom, 'base-fondo'));
       }
     }
-  } else if (tabShapes.length) {
-    const geometry = extrude(tabShapes.map((shape) => punch(shape, [], true)), tabThickness, base.bevel, report);
+  } else if (!hasPlate && tabShapes.length) {
+    const geometry = extrude(tabShapes.map((shape) => punch(shape)), tabThickness, base.bevel, report);
     group.add(makeMesh(geometry, base.color, 0, 'anilla'));
   }
+
+  const reliefBottom = hasPlate ? plateThickness : hasFloor ? floorThickness : 0;
 
   // 4. Relieves sobre la base.
   drawing.forEach(({ layer, shapes }, index) => {
     if (layer.mode !== 'relief') return;
-    const maxBevel = hasPlate ? Math.min(layer.height / 2.4, plateThickness / 2) : layer.height / 3;
+    const support = hasPlate ? plateThickness : hasFloor ? floorThickness : 0;
+    const maxBevel = support > 0 ? Math.min(layer.height / 2.4, support / 2) : layer.height / 3;
     const bevel = Math.min(layer.bevel, maxBevel);
     // El relieve se hunde en la placa en vez de apoyarse justo encima. Dos
     // sólidos que se tocan en un plano exacto dejan caras coplanares: los
     // visores dibujan la costura y los laminadores llegan a tratarlos como
     // piezas distintas. Solapándolos, la unión es inequívoca. El hundido
     // también esconde el chaflán inferior del relieve.
-    const sink = hasPlate ? Math.min(Math.max(bevel, MIN_OVERLAP), plateThickness * 0.5) : 0;
+    const sink = support > 0 ? Math.min(Math.max(bevel, MIN_OVERLAP), support * 0.5) : 0;
     const geometry = extrude(shapes, layer.height + sink, bevel, report);
     group.add(makeMesh(geometry, layer.color, reliefBottom - sink, `capa-${layer.id}`, index + 1));
   });
@@ -426,16 +460,17 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
       `${skipped.count} forma(s) marcadas como grabado o calado se salen de la base y se ignoraron. Aumentá el margen o el tamaño de la base.`,
     );
   }
-  if (hasPlate && baseShapes.length > 1) {
+  const pieces = hasPlate ? baseShapes.length : footprint.length;
+  if (pieces > 1) {
     warnings.push(
-      `La base queda en ${baseShapes.length} piezas separadas: no saldría un llavero de una sola pieza. Subí el margen o el suavizado del contorno para unirlas.`,
+      `La base queda en ${pieces} piezas separadas: no saldría un llavero de una sola pieza. Subí el margen o el suavizado del contorno para unirlas.`,
     );
   }
   if (!hasBase && drawing.some((d) => d.layer.mode === 'engrave')) {
     warnings.push('El grabado necesita una placa base: elegí un modo de base distinto de «Sin base».');
   }
   for (const { layer } of drawing) {
-    if (layer.mode === 'engrave' && layer.height >= plateThickness) {
+    if (layer.mode === 'engrave' && layer.height > maxEngrave) {
       warnings.push(`«${layer.name}» graba más hondo que el espesor de la base: se limitó automáticamente.`);
       break;
     }
@@ -452,9 +487,12 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   });
 
   group.updateMatrixWorld(true);
-  const outerShapes = hasPlate ? baseShapes : [...allShapes, ...tabShapes];
+  const outerShapes = hasPlate ? baseShapes : [...footprint, ...allShapes, ...tabShapes];
   const modelBounds = boundsOfShapes(outerShapes);
-  const maxZ = Math.max(hasPlate ? plateThickness : tabShapes.length ? tabThickness : 0, reliefBottom + Math.max(0, ...reliefHeights));
+  const maxZ = Math.max(
+    hasPlate ? plateThickness : Math.max(tabShapes.length ? tabThickness : 0, hasFloor ? floorThickness : 0),
+    reliefBottom + Math.max(0, ...reliefHeights),
+  );
 
   return {
     group,

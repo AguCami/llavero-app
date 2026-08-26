@@ -32,6 +32,12 @@ export interface BaseSettings {
   smoothing: number;
   /** Chaflán en los cantos de la placa, en mm. */
   bevel: number;
+  /**
+   * Espesor macizo en la parte de abajo, en mm. Ningún grabado ni calado lo
+   * atraviesa, así que la cara inferior queda siempre plana y cerrada.
+   * 0 lo desactiva (los calados vuelven a ser agujeros pasantes).
+   */
+  floor: number;
   color: string;
 }
 
@@ -74,6 +80,7 @@ export const DEFAULT_SETTINGS: ModelSettings = {
     cornerRadius: 4,
     smoothing: 0.35,
     bevel: 0.4,
+    floor: 0.8,
     color: '#2f3d52',
   },
   ring: {

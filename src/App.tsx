@@ -304,6 +304,16 @@ export default function App() {
                   onChange={(cornerRadius) => patchBase({ cornerRadius })}
                 />
                 <NumberField
+                  label="Fondo macizo"
+                  value={settings.base.floor}
+                  min={0}
+                  max={4}
+                  step={0.1}
+                  unit="mm"
+                  hint="Espesor cerrado abajo que ni grabados ni calados atraviesan. En 0, los calados vuelven a ser agujeros pasantes."
+                  onChange={(floor) => patchBase({ floor })}
+                />
+                <NumberField
                   label="Chaflán del canto"
                   value={settings.base.bevel}
                   min={0}
