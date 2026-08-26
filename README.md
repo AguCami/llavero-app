@@ -76,6 +76,13 @@ relativas, así que también funciona en la raíz de un dominio propio.
   Vectorizar mapa de bits*).
 - Los degradados y patrones (`url(#...)`) se ignoran; sólo se usa el color
   plano como color de vista previa.
+- Los trazos invisibles en el SVG (sin relleno, con opacidad 0 o dentro de un
+  grupo `display:none`) se descartan al cargar. Muchos exportadores dejan un
+  rectángulo de fondo así, y sin filtrarlo se convertiría en una capa sólida
+  que tapa el dibujo entero.
+- Un rectángulo de fondo *visible* (el típico `<rect>` blanco que ocupa todo el
+  lienzo) se detecta y se carga oculto, avisando. Si era parte del diseño,
+  cambiale el modo a Relieve.
 - Cada `path` del archivo es una capa. Si querés controlar partes por separado,
   separalas en trazos distintos antes de exportar.
 

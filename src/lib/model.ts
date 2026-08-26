@@ -114,26 +114,24 @@ function pointInRing(point: Vector2, ring: Vector2[]): boolean {
   return inside;
 }
 
-function pointInShapes(point: Vector2, shapes: Shape[]): boolean {
+/**
+ * Punto de `shapes` más avanzado en la dirección `dir`. Se usa para apoyar la
+ * pestaña de la anilla: al ser un punto del propio material, la pestaña queda
+ * pegada aunque el dibujo tenga partes sueltas o huecos en el camino.
+ */
+function boundaryPoint(shapes: Shape[], dir: Vector2): Vector2 {
+  let best: Vector2 | null = null;
+  let bestProjection = Number.NEGATIVE_INFINITY;
   for (const shape of shapes) {
-    if (!pointInRing(point, shape.getPoints(CURVE_SEGMENTS))) continue;
-    const inHole = shape.holes.some((hole) => pointInRing(point, hole.getPoints(CURVE_SEGMENTS)));
-    if (!inHole) return true;
+    for (const p of shape.getPoints(CURVE_SEGMENTS)) {
+      const projection = p.x * dir.x + p.y * dir.y;
+      if (projection > bestProjection) {
+        bestProjection = projection;
+        best = p;
+      }
+    }
   }
-  return false;
-}
-
-/** Punto del borde de `shapes` en la dirección `dir` partiendo del centro. */
-function boundaryPoint(shapes: Shape[], dir: Vector2, fallbackRadius: number): Vector2 {
-  const steps = 400;
-  let last = new Vector2(0, 0);
-  for (let i = 1; i <= steps; i++) {
-    const t = (i / steps) * fallbackRadius * 1.6;
-    const p = new Vector2(dir.x * t, dir.y * t);
-    if (pointInShapes(p, shapes)) last = p;
-  }
-  if (last.lengthSq() === 0) return new Vector2(dir.x * fallbackRadius, dir.y * fallbackRadius);
-  return last;
+  return best ? best.clone() : new Vector2();
 }
 
 /** Comprueba que la malla sea cerrada: cada arista debe aparecer en ambos sentidos. */
@@ -260,8 +258,6 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   }
 
   const bounds = boundsOfShapes(allShapes);
-  const drawWidth = bounds.maxX - bounds.minX;
-  const drawHeight = bounds.maxY - bounds.minY;
   const base = settings.base;
   const hasBase = base.mode !== 'none' && base.thickness > 0.05;
 
@@ -313,9 +309,7 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   if (ring.enabled && ringRadius > 0) {
     const angle = ((ring.angle - 90) * Math.PI) / 180;
     const dir = new Vector2(Math.cos(angle), -Math.sin(angle)).normalize();
-    const attachTo = hasPlate ? baseShapes : allShapes;
-    const fallbackRadius = Math.max(drawWidth, drawHeight) / 2 + base.margin;
-    const edge = boundaryPoint(attachTo, dir, fallbackRadius);
+    const edge = boundaryPoint(hasPlate ? baseShapes : allShapes, dir);
     const center = new Vector2(
       edge.x + dir.x * ringRadius * ring.overhang,
       edge.y + dir.y * ringRadius * ring.overhang,
@@ -424,6 +418,11 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   if (skipped.count) {
     warnings.push(
       `${skipped.count} forma(s) marcadas como grabado o calado se salen de la base y se ignoraron. Aumentá el margen o el tamaño de la base.`,
+    );
+  }
+  if (hasPlate && baseShapes.length > 1) {
+    warnings.push(
+      `La base queda en ${baseShapes.length} piezas separadas: no saldría un llavero de una sola pieza. Subí el margen o el suavizado del contorno para unirlas.`,
     );
   }
   if (!hasBase && drawing.some((d) => d.layer.mode === 'engrave')) {

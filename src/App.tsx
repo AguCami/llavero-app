@@ -74,6 +74,16 @@ export default function App() {
       setFileName(name);
       setError(null);
       const info: string[] = [];
+      if (parsed.backgroundLayer) {
+        info.push(
+          `«${parsed.backgroundLayer}» parece el rectángulo de fondo del archivo y se ocultó. Si era parte del diseño, cambiale el modo a Relieve en Capas.`,
+        );
+      }
+      if (parsed.invisiblePaths) {
+        info.push(
+          `${parsed.invisiblePaths} trazo(s) invisibles en el SVG (sin relleno, transparentes u ocultos) se descartaron.`,
+        );
+      }
       if (parsed.strokeOnlyPaths) {
         info.push(
           `${parsed.strokeOnlyPaths} trazo(s) sin relleno se rellenaron para poder extruirlos. Si el resultado no es el esperado, convertí el trazo a curvas (Inkscape: Trayecto → Contorno a trayecto).`,

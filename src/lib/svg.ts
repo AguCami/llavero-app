@@ -15,6 +15,10 @@ export interface ParsedSvg {
   strokeOnlyPaths: number;
   /** Trazos descartados por quedar vacíos tras el saneado. */
   droppedPaths: number;
+  /** Trazos invisibles en el SVG (sin relleno, transparentes u ocultos). */
+  invisiblePaths: number;
+  /** Nombre del trazo ocultado por parecer el fondo del archivo, si lo hubo. */
+  backgroundLayer: string | null;
 }
 
 function polygonArea(points: Vector2[]): number {
@@ -47,6 +51,42 @@ interface RawShape {
   holes: Vector2[][];
 }
 
+/** ¿El nodo o alguno de sus ancestros está oculto en el propio SVG? */
+function isHiddenNode(node: Element | undefined): boolean {
+  let current: Element | null = node ?? null;
+  while (current && current.nodeName.toLowerCase() !== 'svg') {
+    const style = current.getAttribute('style') ?? '';
+    if (current.getAttribute('display') === 'none' || /display\s*:\s*none/.test(style)) return true;
+    if (current.getAttribute('visibility') === 'hidden' || /visibility\s*:\s*hidden/.test(style)) return true;
+    current = current.parentElement;
+  }
+  return false;
+}
+
+/**
+ * ¿El trazo pinta algo? `SVGLoader` devuelve también los trazos sin relleno y
+ * los transparentes; si no se filtran, un rectángulo de fondo invisible se
+ * convierte en una capa sólida que tapa el dibujo entero.
+ */
+function isVisible(path: { userData?: { style?: Record<string, string>; node?: Element } }): boolean {
+  const style = path.userData?.style;
+  if (!style) return true;
+  if (isHiddenNode(path.userData?.node)) return false;
+
+  const opacity = Number(style.opacity ?? 1);
+  if (Number.isFinite(opacity) && opacity <= 0.001) return false;
+
+  const hasFill = !!style.fill && style.fill !== 'none';
+  const fillOpacity = Number(style.fillOpacity ?? 1);
+  const fillVisible = hasFill && (!Number.isFinite(fillOpacity) || fillOpacity > 0.001);
+
+  const hasStroke = !!style.stroke && style.stroke !== 'none';
+  const strokeOpacity = Number(style.strokeOpacity ?? 1);
+  const strokeVisible = hasStroke && (!Number.isFinite(strokeOpacity) || strokeOpacity > 0.001);
+
+  return fillVisible || strokeVisible;
+}
+
 function shapeToRings(shape: Shape): RawShape | null {
   const { shape: contour, holes } = shape.extractPoints(CURVE_SEGMENTS);
   const cleanContour = cleanRing(contour as Vector2[]);
@@ -55,6 +95,50 @@ function shapeToRings(shape: Shape): RawShape | null {
     .map(cleanRing)
     .filter((hole) => hole.length >= 3 && Math.abs(polygonArea(hole)) > EPSILON);
   return { contour: cleanContour, holes: cleanHoles };
+}
+
+/** Área del contorno menos la de sus huecos. */
+function shapeArea(rings: RawShape[]): number {
+  let area = 0;
+  for (const ring of rings) {
+    area += Math.abs(polygonArea(ring.contour));
+    for (const hole of ring.holes) area -= Math.abs(polygonArea(hole));
+  }
+  return area;
+}
+
+function boundsArea(bounds: Bounds): number {
+  return Math.max(0, bounds.maxX - bounds.minX) * Math.max(0, bounds.maxY - bounds.minY);
+}
+
+function contains(outer: Bounds, inner: Bounds, tolerance: number): boolean {
+  return (
+    outer.minX <= inner.minX + tolerance &&
+    outer.minY <= inner.minY + tolerance &&
+    outer.maxX >= inner.maxX - tolerance &&
+    outer.maxY >= inner.maxY - tolerance
+  );
+}
+
+/**
+ * ¿El primer trazo es el rectángulo de fondo del archivo? Lo es cuando ocupa
+ * su caja por completo (o sea, es un rectángulo) y encierra a todo lo demás
+ * con holgura. Muchos exportadores lo añaden aunque se vea "sin fondo".
+ */
+function looksLikeBackground(first: RawShape[], rest: RawShape[]): boolean {
+  if (!rest.length) return false;
+  const box = boundsOf(first);
+  const boxArea = boundsArea(box);
+  if (boxArea <= 0) return false;
+  // Un rectángulo llena su caja; un logo cualquiera deja mucho aire.
+  if (shapeArea(first) < boxArea * 0.95) return false;
+  if (first.some((ring) => ring.contour.length > 8 || ring.holes.length)) return false;
+
+  const contentBox = boundsOf(rest);
+  const tolerance = Math.max(box.maxX - box.minX, box.maxY - box.minY) * 0.01;
+  if (!contains(box, contentBox, tolerance)) return false;
+  // Si el contenido llena casi toda la caja, no es un fondo: es parte del dibujo.
+  return boundsArea(contentBox) < boxArea * 0.92;
 }
 
 function boundsOf(rings: RawShape[]): Bounds {
@@ -117,14 +201,20 @@ export function parseSvg(svgText: string): ParsedSvg {
 
   let strokeOnlyPaths = 0;
   let droppedPaths = 0;
+  let invisiblePaths = 0;
 
   const entries: { rings: RawShape[]; color: string; name: string }[] = [];
   data.paths.forEach((path, index) => {
+    if (!isVisible(path)) {
+      invisiblePaths += 1;
+      return;
+    }
     const style = path.userData?.style as Record<string, string> | undefined;
     const hasFill = !!style?.fill && style.fill !== 'none';
     if (!hasFill && style?.stroke && style.stroke !== 'none') strokeOnlyPaths += 1;
 
-    const rings = SVGLoader.createShapes(path)
+    const rings = path
+      .toShapes()
       .map(shapeToRings)
       .filter((r): r is RawShape => r !== null);
 
@@ -144,7 +234,13 @@ export function parseSvg(svgText: string): ParsedSvg {
     throw new Error('No se pudo extraer ninguna forma cerrada del SVG.');
   }
 
-  const bounds = boundsOf(entries.flatMap((e) => e.rings));
+  // Un fondo detectado se oculta y, sobre todo, no cuenta para el encuadre:
+  // si contase, el dibujo saldría más chico que el ancho pedido.
+  const backgroundIndex =
+    entries.length > 1 && looksLikeBackground(entries[0].rings, entries.slice(1).flatMap((e) => e.rings)) ? 0 : -1;
+  const visibleEntries = entries.filter((_, index) => index !== backgroundIndex);
+
+  const bounds = boundsOf(visibleEntries.flatMap((e) => e.rings));
   const rawWidth = bounds.maxX - bounds.minX;
   const rawHeight = bounds.maxY - bounds.minY;
   if (!(rawWidth > 0) || !(rawHeight > 0)) {
@@ -162,10 +258,17 @@ export function parseSvg(svgText: string): ParsedSvg {
     name: entry.name,
     shapes: entry.rings.map((ring) => ringsToShape(ring, transform)),
     color: entry.color,
-    mode: 'relief',
+    mode: index === backgroundIndex ? 'hidden' : 'relief',
     height: DEFAULT_LAYER_HEIGHT,
     bevel: 0,
   }));
 
-  return { layers, aspect: rawHeight / rawWidth, strokeOnlyPaths, droppedPaths };
+  return {
+    layers,
+    aspect: rawHeight / rawWidth,
+    strokeOnlyPaths,
+    droppedPaths,
+    invisiblePaths,
+    backgroundLayer: backgroundIndex >= 0 ? layers[backgroundIndex].name : null,
+  };
 }
