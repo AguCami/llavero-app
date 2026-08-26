@@ -28,6 +28,8 @@ export interface BuiltModel {
 }
 
 const CURVE_SEGMENTS = 24;
+/** Cuánto se solapan dos piezas que deberían quedar unidas, en mm. */
+const MIN_OVERLAP = 0.3;
 
 function transformShapes(shapes: Shape[], settings: ModelSettings): Shape[] {
   const scale = settings.width;
@@ -404,8 +406,12 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
     if (layer.mode !== 'relief') return;
     const maxBevel = hasPlate ? Math.min(layer.height / 2.4, plateThickness / 2) : layer.height / 3;
     const bevel = Math.min(layer.bevel, maxBevel);
-    // Con placa, el relieve se hunde lo justo para esconder el chaflán inferior.
-    const sink = bevel > 0.001 && hasPlate ? bevel : 0;
+    // El relieve se hunde en la placa en vez de apoyarse justo encima. Dos
+    // sólidos que se tocan en un plano exacto dejan caras coplanares: los
+    // visores dibujan la costura y los laminadores llegan a tratarlos como
+    // piezas distintas. Solapándolos, la unión es inequívoca. El hundido
+    // también esconde el chaflán inferior del relieve.
+    const sink = hasPlate ? Math.min(Math.max(bevel, MIN_OVERLAP), plateThickness * 0.5) : 0;
     const geometry = extrude(shapes, layer.height + sink, bevel, report);
     group.add(makeMesh(geometry, layer.color, reliefBottom - sink, `capa-${layer.id}`, index + 1));
   });
