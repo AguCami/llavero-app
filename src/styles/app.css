@@ -536,3 +536,43 @@ body {
     order: 1;
   }
 }
+
+/* --- Ajustes por capa --- */
+.layer__more {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.layer__more summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  list-style: none;
+}
+
+.layer__more summary::before {
+  content: '▸ ';
+}
+
+.layer__more[open] summary::before {
+  content: '▾ ';
+}
+
+.layer__more summary:hover {
+  color: var(--text);
+}
+
+.layer__more[open] summary {
+  margin-bottom: 10px;
+}
+
+.layer__more > .field + .field {
+  margin-top: 10px;
+}
+
+.layer__reset {
+  width: 100%;
+  margin-top: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+}

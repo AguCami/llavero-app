@@ -117,7 +117,7 @@ function shapeRings(shape: Shape): Vector2[][] {
  * en una. Rellenarlas todas juntas las cancelaría en el solape, dejando un
  * agujero justo donde tenían que unirse.
  */
-function rasterize(shapes: Vector2[][][], box: Box, padding: number, step: number): Field {
+function rasterize(shapes: Vector2[][][], subtract: Vector2[][][], box: Box, padding: number, step: number): Field {
   const minX = box.minX - padding;
   const minY = box.minY - padding;
   const maxX = box.maxX + padding;
@@ -131,29 +131,33 @@ function rasterize(shapes: Vector2[][][], box: Box, padding: number, step: numbe
   const originY = maxY - step / 2;
 
   const crossings: number[] = [];
+  const fill = (rings: Vector2[][], y: number, row: number, value: 0 | 1) => {
+    crossings.length = 0;
+    for (const ring of rings) {
+      for (let i = 0, k = ring.length - 1; i < ring.length; k = i++) {
+        const a = ring[k];
+        const b = ring[i];
+        if (a.y === b.y) continue;
+        if (y < Math.min(a.y, b.y) || y >= Math.max(a.y, b.y)) continue;
+        crossings.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
+      }
+    }
+    if (crossings.length < 2) return;
+    crossings.sort((p, q) => p - q);
+    for (let c = 0; c + 1 < crossings.length; c += 2) {
+      // Píxeles cuyo centro cae dentro del tramo [x0, x1].
+      const from = Math.ceil((crossings[c] - originX) / step);
+      const to = Math.floor((crossings[c + 1] - originX) / step);
+      for (let i = Math.max(0, from); i <= Math.min(width - 1, to); i++) mask[row + i] = value;
+    }
+  };
+
   for (let j = 0; j < height; j++) {
     const y = originY - j * step;
     const row = j * width;
-    for (const rings of shapes) {
-      crossings.length = 0;
-      for (const ring of rings) {
-        for (let i = 0, k = ring.length - 1; i < ring.length; k = i++) {
-          const a = ring[k];
-          const b = ring[i];
-          if (a.y === b.y) continue;
-          if (y < Math.min(a.y, b.y) || y >= Math.max(a.y, b.y)) continue;
-          crossings.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
-        }
-      }
-      if (crossings.length < 2) continue;
-      crossings.sort((p, q) => p - q);
-      for (let c = 0; c + 1 < crossings.length; c += 2) {
-        // Píxeles cuyo centro cae dentro del tramo [x0, x1].
-        const from = Math.ceil((crossings[c] - originX) / step);
-        const to = Math.floor((crossings[c + 1] - originX) / step);
-        for (let i = Math.max(0, from); i <= Math.min(width - 1, to); i++) mask[row + i] = 1;
-      }
-    }
+    for (const rings of shapes) fill(rings, y, row, 1);
+    // Lo que se resta se borra después, así vale para cualquier solape.
+    for (const rings of subtract) fill(rings, y, row, 0);
   }
 
   return {
@@ -344,6 +348,8 @@ export interface OutlineOptions {
    * sustituye al valor derivado de `smoothing`.
    */
   fillet?: number;
+  /** Formas a restar del resultado (agujeros de cualquier solape). */
+  subtract?: Shape[];
 }
 
 /**
@@ -353,6 +359,7 @@ export interface OutlineOptions {
 export function outlineShapes(shapes: Shape[], options: OutlineOptions): Shape[] {
   if (!shapes.length) return [];
   const perShape = shapes.map(shapeRings);
+  const perSubtract = (options.subtract ?? []).map(shapeRings);
   const box = boxOf(perShape.flat());
   if (!Number.isFinite(box.minX)) return [];
 
@@ -373,7 +380,7 @@ export function outlineShapes(shapes: Shape[], options: OutlineOptions): Shape[]
   // Se deja un borde de varios píxeles para que las isolíneas cierren dentro de la rejilla.
   const padding = grown + step * 4;
 
-  const field = rasterize(perShape, box, padding, step);
+  const field = rasterize(perShape, perSubtract, box, padding, step);
   const mask = field.mask;
   const outsideDistance = distanceTransform(mask, field.width, field.height);
 

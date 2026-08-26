@@ -56,14 +56,20 @@ relativas, así que también funciona en la raíz de un dominio propio.
    - *Rectángulo* / *Círculo*: placa geométrica con margen.
    - *Sin base*: sólo las formas, sin placa (tienen que solaparse entre sí para
      que salga una única pieza).
-4. **Ajustá la anilla**: diámetro del agujero, grosor del material alrededor,
-   posición angular y cuánto sobresale. La pestaña se funde con la placa con un
-   radio de acuerdo, que es donde más se rompen los llaveros.
+4. **Ajustá la anilla**: en modo *Pestaña* añade material fundido con la placa
+   (con un radio de acuerdo en la unión, que es donde más se rompen los
+   llaveros); en modo *Agujero* sólo perfora la pieza que ya hay. Se controlan
+   el diámetro interior (por donde pasa la argolla), el exterior, la dirección
+   y la distancia al borde: positiva la saca hacia afuera, negativa la mete
+   dentro. Si un relieve queda encima del agujero, también se perfora.
 5. **Editá cada capa**:
    - *Relieve*: sobresale por encima de la base, con altura y bisel propios.
    - *Grabado*: se hunde en la base a la profundidad indicada.
    - *Calado*: atraviesa la placa de lado a lado.
    - *Oculta*: no se incluye en el modelo.
+
+   En *Mover y ajustar* cada trazo se desplaza, se agranda y se gira por su
+   cuenta, sin tocar el resto del dibujo.
 6. **Descargá el STL**. «STL por color» exporta un archivo por color, para
    impresión multimaterial o para imprimir cada pieza en un filamento distinto.
 
@@ -88,7 +94,8 @@ relativas, así que también funciona en la raíz de un dominio propio.
 
 ## Recomendaciones de impresión
 
-- Base de 3 mm y anilla con al menos 2 mm de material alrededor del agujero.
+- Base de 3 mm y anilla con al menos 2 mm de material alrededor del agujero
+  (o sea, diámetro exterior ≥ interior + 4 mm).
 - Agujero de 4 mm para argollas de llavero típicas.
 - Relieves de 0,8–1,5 mm: suficientes para que se noten sin alargar la impresión.
 - El modelo se exporta apoyado en Z = 0 y centrado, listo para laminar sin

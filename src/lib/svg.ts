@@ -1,6 +1,6 @@
 import { Color, Path, Shape, Vector2 } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
-import { DEFAULT_LAYER_HEIGHT, type Bounds, type Layer } from './types';
+import { DEFAULT_LAYER_HEIGHT, DEFAULT_LAYER_TRANSFORM, type Bounds, type Layer } from './types';
 
 /** Cuántos segmentos se usan al convertir curvas Bézier en polilíneas. */
 const CURVE_SEGMENTS = 40;
@@ -261,6 +261,7 @@ export function parseSvg(svgText: string): ParsedSvg {
     mode: index === backgroundIndex ? 'hidden' : 'relief',
     height: DEFAULT_LAYER_HEIGHT,
     bevel: 0,
+    ...DEFAULT_LAYER_TRANSFORM,
   }));
 
   return {

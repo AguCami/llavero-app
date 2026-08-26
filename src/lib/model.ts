@@ -31,17 +31,44 @@ const CURVE_SEGMENTS = 24;
 /** Cuánto se solapan dos piezas que deberían quedar unidas, en mm. */
 const MIN_OVERLAP = 0.3;
 
-function transformShapes(shapes: Shape[], settings: ModelSettings): Shape[] {
+/**
+ * Lleva las formas normalizadas de una capa a milímetros, aplicando primero
+ * los ajustes propios del trazo (escala y giro alrededor de su centro, y
+ * desplazamiento) y después los del modelo entero.
+ */
+function transformShapes(shapes: Shape[], settings: ModelSettings, layer?: Layer): Shape[] {
   const scale = settings.width;
   const mirror = settings.mirror ? -1 : 1;
   const angle = (settings.rotation * Math.PI) / 180;
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
+
+  const localScale = layer?.scale ?? 1;
+  const localAngle = ((layer?.rotation ?? 0) * Math.PI) / 180;
+  const localCos = Math.cos(localAngle);
+  const localSin = Math.sin(localAngle);
+  // El desplazamiento se indica en mm; aquí se trabaja en unidades normalizadas.
+  const offsetX = (layer?.offsetX ?? 0) / scale;
+  const offsetY = (layer?.offsetY ?? 0) / scale;
+
+  // El giro y la escala propios son alrededor del centro del trazo, para que
+  // no se dispare lejos cuando está apartado del origen.
+  let cx = 0;
+  let cy = 0;
+  if (layer && (localScale !== 1 || localAngle !== 0)) {
+    const box = boundsOfShapes(shapes);
+    cx = (box.minX + box.maxX) / 2;
+    cy = (box.minY + box.maxY) / 2;
+  }
+
   const apply = (p: Vector2) => {
-    const x = p.x * scale * mirror;
-    const y = p.y * scale;
+    const lx = (p.x - cx) * localScale;
+    const ly = (p.y - cy) * localScale;
+    const x = (cx + lx * localCos - ly * localSin + offsetX) * scale * mirror;
+    const y = (cy + lx * localSin + ly * localCos + offsetY) * scale;
     return new Vector2(x * cos - y * sin, x * sin + y * cos);
   };
+
   return shapes.map((shape) => {
     const { shape: contour, holes } = shape.extractPoints(CURVE_SEGMENTS);
     const next = new Shape((contour as Vector2[]).map(apply));
@@ -95,13 +122,13 @@ function circleShape(cx: number, cy: number, radius: number, segments = 64): Sha
   return shape;
 }
 
-function circlePath(cx: number, cy: number, radius: number, segments = 48): Path {
+function circlePoints(cx: number, cy: number, radius: number, segments = 48): Vector2[] {
   const points: Vector2[] = [];
   for (let i = 0; i < segments; i++) {
     const a = (i / segments) * Math.PI * 2;
     points.push(new Vector2(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius));
   }
-  return new Path(points);
+  return points;
 }
 
 function pointInRing(point: Vector2, ring: Vector2[]): boolean {
@@ -253,7 +280,7 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   const group = new Group();
   const warnings: string[] = [];
   const visible = layers.filter((layer) => layer.mode !== 'hidden');
-  const drawing = visible.map((layer) => ({ layer, shapes: transformShapes(layer.shapes, settings) }));
+  const drawing = visible.map((layer) => ({ layer, shapes: transformShapes(layer.shapes, settings, layer) }));
   const allShapes = drawing.flatMap((d) => d.shapes);
   if (!allShapes.length) {
     return { group, stats: { width: 0, depth: 0, height: 0, triangles: 0, volume: 0 }, warnings };
@@ -305,20 +332,21 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   // 2. Pestaña de la anilla: fusionada con la placa, o suelta si no hay placa.
   const hasPlate = baseShapes.length > 0;
   const ring = settings.ring;
-  const ringRadius = ring.holeDiameter / 2 + ring.wall;
+  const holeRadius = ring.holeDiameter / 2;
+  // Siempre queda algo de material alrededor del agujero, pase lo que pase.
+  const ringRadius = Math.max(ring.outerDiameter / 2, holeRadius + 0.6);
   let tabShapes: Shape[] = [];
   let ringHole: Vector2 | null = null;
-  if (ring.enabled && ringRadius > 0) {
+  if (ring.enabled && holeRadius > 0) {
     const angle = ((ring.angle - 90) * Math.PI) / 180;
     const dir = new Vector2(Math.cos(angle), -Math.sin(angle)).normalize();
     const edge = boundaryPoint(hasPlate ? baseShapes : allShapes, dir);
-    const center = new Vector2(
-      edge.x + dir.x * ringRadius * ring.overhang,
-      edge.y + dir.y * ringRadius * ring.overhang,
-    );
+    const center = new Vector2(edge.x + dir.x * ring.distance, edge.y + dir.y * ring.distance);
     ringHole = center;
     const disc = circleShape(center.x, center.y, ringRadius);
-    if (hasPlate) {
+    if (ring.mode === 'hole') {
+      // Sin pestaña: el agujero se perfora en el material que ya hay.
+    } else if (hasPlate) {
       // La unión se resuelve rasterizando. El acuerdo evita el ángulo entrante
       // donde la pestaña se encuentra con la placa: ahí es donde se parten los
       // llaveros, y además permite chaflanar el canto sin auto-intersecciones.
@@ -357,12 +385,19 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
     cuts?: boolean;
   }
 
+  const ringPunched = { done: false };
+
   const punch = (shape: Shape, options: PunchOptions = {}): Shape => {
     const holes = [...(options.cuts === false ? [] : cutShapes), ...(options.engrave ?? [])];
     const result = withHoles(shape, holes, skipped);
-    // El agujero de la anilla sí atraviesa todo: para eso está.
-    if (ringHole && pointInRing(ringHole, result.getPoints(CURVE_SEGMENTS))) {
-      result.holes.push(circlePath(ringHole.x, ringHole.y, ring.holeDiameter / 2));
+    // El agujero de la anilla sí atraviesa todo: para eso está. Se exige que
+    // entre entero, porque un agujero que cruza el borde rompe la tapa.
+    if (ringHole) {
+      const points = circlePoints(ringHole.x, ringHole.y, holeRadius);
+      if (points.every((p) => pointInRing(p, result.getPoints(CURVE_SEGMENTS)))) {
+        result.holes.push(new Path(points));
+        ringPunched.done = true;
+      }
     }
     return result;
   };
@@ -435,8 +470,30 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   const reliefBottom = hasPlate ? plateThickness : hasFloor ? floorThickness : 0;
 
   // 4. Relieves sobre la base.
-  drawing.forEach(({ layer, shapes }, index) => {
+  /** ¿La forma se cruza con el agujero de la anilla? */
+  const touchesRingHole = (shapes: Shape[]): boolean => {
+    if (!ringHole) return false;
+    const probe = circlePoints(ringHole.x, ringHole.y, holeRadius, 24);
+    for (const shape of shapes) {
+      const contour = shape.getPoints(CURVE_SEGMENTS);
+      if (probe.some((p) => pointInRing(p, contour))) return true;
+      if (contour.some((p) => Math.hypot(p.x - ringHole.x, p.y - ringHole.y) <= holeRadius)) return true;
+    }
+    return false;
+  };
+
+  drawing.forEach(({ layer, shapes: original }, index) => {
     if (layer.mode !== 'relief') return;
+    // Un relieve encima del agujero lo taparía: hay que perforarlo también.
+    const shapes =
+      ringHole && touchesRingHole(original)
+        ? outlineShapes(original, {
+            margin: 0,
+            smoothing: 0,
+            fillet: 0,
+            subtract: [circleShape(ringHole.x, ringHole.y, holeRadius)],
+          })
+        : original;
     const support = hasPlate ? plateThickness : hasFloor ? floorThickness : 0;
     const maxBevel = support > 0 ? Math.min(layer.height / 2.4, support / 2) : layer.height / 3;
     const bevel = Math.min(layer.bevel, maxBevel);
@@ -458,6 +515,13 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
   if (skipped.count) {
     warnings.push(
       `${skipped.count} forma(s) marcadas como grabado o calado se salen de la base y se ignoraron. Aumentá el margen o el tamaño de la base.`,
+    );
+  }
+  if (ring.enabled && holeRadius > 0 && !ringPunched.done) {
+    warnings.push(
+      ring.mode === 'hole'
+        ? 'El agujero de la anilla no entra entero en la pieza: acercalo con «Distancia al borde» o pasá el modo a Pestaña.'
+        : 'No se pudo perforar el agujero de la anilla: revisá su diámetro y su distancia al borde.',
     );
   }
   const pieces = hasPlate ? baseShapes.length : footprint.length;

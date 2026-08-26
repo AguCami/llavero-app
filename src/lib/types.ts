@@ -16,6 +16,13 @@ export interface Layer {
   height: number;
   /** Bisel en el borde superior, en mm (0 = canto vivo). */
   bevel: number;
+  /** Desplazamiento del trazo respecto de su sitio original, en mm. */
+  offsetX: number;
+  offsetY: number;
+  /** Escala propia del trazo: 1 = tamaño original. */
+  scale: number;
+  /** Giro propio del trazo alrededor de su centro, en grados. */
+  rotation: number;
 }
 
 export type BaseMode = 'outline' | 'silhouette' | 'rect' | 'circle' | 'none';
@@ -41,16 +48,26 @@ export interface BaseSettings {
   color: string;
 }
 
+/**
+ * `tab` añade una pestaña de material fundida con la base; `hole` sólo
+ * perfora la base, sin añadir nada.
+ */
+export type RingMode = 'tab' | 'hole';
+
 export interface RingSettings {
   enabled: boolean;
-  /** Diámetro del agujero de la anilla, en mm. */
+  mode: RingMode;
+  /** Diámetro interior: el agujero por donde pasa la argolla, en mm. */
   holeDiameter: number;
-  /** Grosor del material alrededor del agujero, en mm. */
-  wall: number;
-  /** Posición angular en grados: 0 = arriba, 90 = derecha. */
+  /** Diámetro exterior de la pestaña, en mm. */
+  outerDiameter: number;
+  /** Dirección en grados: 0 = arriba, 90 = derecha. */
   angle: number;
-  /** Cuánto sobresale la pestaña respecto del borde, 0..1. */
-  overhang: number;
+  /**
+   * Distancia desde el borde de la base, en mm. Positiva la aleja hacia
+   * afuera; negativa la mete dentro de la pieza.
+   */
+  distance: number;
 }
 
 export interface ModelSettings {
@@ -85,11 +102,20 @@ export const DEFAULT_SETTINGS: ModelSettings = {
   },
   ring: {
     enabled: true,
+    mode: 'tab',
     holeDiameter: 4,
-    wall: 2.2,
+    outerDiameter: 8.4,
     angle: 0,
-    overhang: 0.55,
+    distance: 2.3,
   },
 };
 
 export const DEFAULT_LAYER_HEIGHT = 1.2;
+
+/** Valores de arranque de los ajustes propios de cada trazo. */
+export const DEFAULT_LAYER_TRANSFORM = {
+  offsetX: 0,
+  offsetY: 0,
+  scale: 1,
+  rotation: 0,
+} as const;

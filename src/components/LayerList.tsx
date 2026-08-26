@@ -1,4 +1,5 @@
 import type { Layer, LayerMode } from '../lib/types';
+import { DEFAULT_LAYER_TRANSFORM } from '../lib/types';
 import { NumberField, Segmented } from './ui';
 
 const MODES: { value: LayerMode; label: string; title: string }[] = [
@@ -76,6 +77,55 @@ export function LayerList({ layers, onChange, onMove }: Props) {
               hint="Suaviza el canto superior del relieve"
               onChange={(bevel) => onChange(layer.id, { bevel })}
             />
+          ) : null}
+
+          {layer.mode !== 'hidden' ? (
+            <details className="layer__more">
+              <summary>Mover y ajustar</summary>
+              <NumberField
+                label="Mover horizontal"
+                value={layer.offsetX}
+                min={-60}
+                max={60}
+                step={0.5}
+                unit="mm"
+                onChange={(offsetX) => onChange(layer.id, { offsetX })}
+              />
+              <NumberField
+                label="Mover vertical"
+                value={layer.offsetY}
+                min={-60}
+                max={60}
+                step={0.5}
+                unit="mm"
+                onChange={(offsetY) => onChange(layer.id, { offsetY })}
+              />
+              <NumberField
+                label="Tamaño"
+                value={layer.scale}
+                min={0.1}
+                max={3}
+                step={0.05}
+                unit="×"
+                onChange={(scale) => onChange(layer.id, { scale })}
+              />
+              <NumberField
+                label="Girar"
+                value={layer.rotation}
+                min={-180}
+                max={180}
+                step={1}
+                unit="°"
+                onChange={(rotation) => onChange(layer.id, { rotation })}
+              />
+              <button
+                type="button"
+                className="btn layer__reset"
+                onClick={() => onChange(layer.id, { ...DEFAULT_LAYER_TRANSFORM })}
+              >
+                Volver al original
+              </button>
+            </details>
           ) : null}
         </article>
       ))}

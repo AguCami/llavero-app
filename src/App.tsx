@@ -328,33 +328,58 @@ export default function App() {
 
               <Panel title="Anilla">
                 <Toggle
-                  label="Agujero para la argolla"
+                  label="Anilla para la argolla"
                   checked={settings.ring.enabled}
                   onChange={(enabled) => patchRing({ enabled })}
                 />
+                <Segmented
+                  value={settings.ring.mode}
+                  options={[
+                    { value: 'tab', label: 'Pestaña', title: 'Añade material que sobresale de la base' },
+                    { value: 'hole', label: 'Agujero', title: 'Sólo perfora la base, sin añadir nada' },
+                  ]}
+                  onChange={(mode) =>
+                    // Al pasar a agujero, se mete dentro de la pieza para que entre entero.
+                    patchRing({
+                      mode,
+                      distance:
+                        mode === 'hole' && settings.ring.distance > 0
+                          ? -(settings.ring.outerDiameter / 2 + 1)
+                          : settings.ring.distance,
+                    })
+                  }
+                />
                 <NumberField
-                  label="Diámetro del agujero"
+                  label="Diámetro interior"
                   value={settings.ring.holeDiameter}
                   min={1.5}
-                  max={12}
+                  max={20}
                   step={0.5}
                   unit="mm"
                   disabled={!settings.ring.enabled}
-                  onChange={(holeDiameter) => patchRing({ holeDiameter })}
+                  hint="El agujero por donde pasa la argolla"
+                  onChange={(holeDiameter) =>
+                    patchRing({
+                      holeDiameter,
+                      outerDiameter: Math.max(settings.ring.outerDiameter, holeDiameter + 1.2),
+                    })
+                  }
                 />
                 <NumberField
-                  label="Grosor alrededor"
-                  value={settings.ring.wall}
-                  min={0.8}
-                  max={8}
-                  step={0.2}
+                  label="Diámetro exterior"
+                  value={settings.ring.outerDiameter}
+                  min={3}
+                  max={40}
+                  step={0.5}
                   unit="mm"
-                  disabled={!settings.ring.enabled}
-                  hint="Al menos 2 mm para que no se rompa"
-                  onChange={(wall) => patchRing({ wall })}
+                  disabled={!settings.ring.enabled || settings.ring.mode === 'hole'}
+                  hint="Dejá al menos 2 mm de material a cada lado para que no se rompa"
+                  onChange={(outerDiameter) =>
+                    patchRing({ outerDiameter: Math.max(outerDiameter, settings.ring.holeDiameter + 1.2) })
+                  }
                 />
                 <NumberField
-                  label="Posición"
+                  label="Dirección"
                   value={settings.ring.angle}
                   min={-180}
                   max={180}
@@ -365,13 +390,15 @@ export default function App() {
                   onChange={(angle) => patchRing({ angle })}
                 />
                 <NumberField
-                  label="Cuánto sobresale"
-                  value={settings.ring.overhang}
-                  min={0}
-                  max={1}
-                  step={0.05}
+                  label="Distancia al borde"
+                  value={settings.ring.distance}
+                  min={-40}
+                  max={25}
+                  step={0.5}
+                  unit="mm"
                   disabled={!settings.ring.enabled}
-                  onChange={(overhang) => patchRing({ overhang })}
+                  hint="Positiva la saca hacia afuera; negativa la mete dentro de la pieza"
+                  onChange={(distance) => patchRing({ distance })}
                 />
               </Panel>
 
