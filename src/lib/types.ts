@@ -1,7 +1,12 @@
 import type { Shape } from 'three';
 
 /** Cómo se materializa cada trazo del SVG dentro del llavero. */
-export type LayerMode = 'relief' | 'engrave' | 'cut' | 'hidden';
+/**
+ * `flat` no añade ni quita material: la forma sólo cuenta para calcular el
+ * contorno de la base. Sirve para que el relleno de un dibujo sea la placa y
+ * únicamente sus líneas queden grabadas.
+ */
+export type LayerMode = 'relief' | 'engrave' | 'cut' | 'flat' | 'hidden';
 
 /** Un trazo (path) del SVG convertido en formas 2D normalizadas en milímetros. */
 export interface Layer {
@@ -11,6 +16,8 @@ export interface Layer {
   shapes: Shape[];
   /** Silueta de la capa como ruta SVG, para la miniatura de la lista. */
   preview: string;
+  /** Superficie que ocupa la capa, en unidades normalizadas. */
+  area: number;
   /** Color original del SVG, usado como color de vista previa. */
   color: string;
   mode: LayerMode;

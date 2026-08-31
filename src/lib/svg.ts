@@ -11,6 +11,14 @@ const CURVE_SEGMENTS = 40;
 /** Dos puntos más cercanos que esto (en unidades normalizadas) se consideran el mismo. */
 const EPSILON = 1e-6;
 
+/**
+ * Cómo se reparte el dibujo en capas:
+ * - `single`: todo el dibujo fundido en una sola pieza.
+ * - `color`: una capa por familia de color, recortadas por orden de pintado.
+ * - `raw`: un trazo, una capa; sin fundir nada.
+ */
+export type ParseMode = 'single' | 'color' | 'raw';
+
 export interface ParsedSvg {
   layers: Layer[];
   /** Trazos que se fundieron al agrupar por color. */
@@ -223,6 +231,17 @@ function colorName(hex: string): string {
   return base;
 }
 
+/** Superficie de las formas ya construidas: contorno menos huecos. */
+function shapesArea(shapes: Shape[]): number {
+  let area = 0;
+  for (const shape of shapes) {
+    const { shape: contour, holes } = shape.extractPoints(12);
+    area += Math.abs(polygonArea(contour as Vector2[]));
+    for (const hole of holes as Vector2[][]) area -= Math.abs(polygonArea(hole));
+  }
+  return area;
+}
+
 /** Ruta SVG de la capa, en el mismo encuadre para todas (Y hacia abajo). */
 function previewPath(shapes: Shape[]): string {
   const ring = (points: Vector2[]) =>
@@ -241,7 +260,8 @@ function previewPath(shapes: Shape[]): string {
  * El dibujo se normaliza: eje Y hacia arriba, centrado en el origen y con
  * ancho 1. El tamaño real en milímetros se aplica al construir el modelo.
  */
-export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
+export function parseSvg(svgText: string, mode: ParseMode = 'color'): ParsedSvg {
+  const groupByColor = mode !== 'raw';
   const data = new SVGLoader().parse(svgText);
   if (!data.paths.length) {
     throw new Error('El archivo no contiene trazos vectoriales. Exportalo como SVG con formas, no como imagen incrustada.');
@@ -287,12 +307,22 @@ export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
   const backgroundFirst =
     entries.length > 1 && looksLikeBackground(entries[0].rings, entries.slice(1).flatMap((e) => e.rings));
 
-  // Agrupar por color deja una capa por tinta en vez de una por trazo: un
-  // logo real trae decenas de trazos y la lista se vuelve inmanejable.
+  // Agrupar deja una capa por tinta (o una sola para todo el dibujo) en vez de
+  // una por trazo: un logo real trae decenas de trazos y la lista se vuelve
+  // inmanejable.
   let groupedPaths = 0;
-  if (groupByColor) {
+  if (mode === 'single') {
+    const background = backgroundFirst ? entries[0] : null;
+    const art = backgroundFirst ? entries.slice(1) : entries;
+    // El color de la pieza es el del trazo que más superficie ocupa.
+    const dominant = art.reduce((best, entry) => (shapeArea(entry.rings) > shapeArea(best.rings) ? entry : best), art[0]);
+    const merged = { rings: art.flatMap((entry) => entry.rings), color: dominant.color, name: 'Dibujo' };
+    groupedPaths = art.length - 1;
+    entries.length = 0;
+    entries.push(...(background ? [background, merged] : [merged]));
+  } else if (groupByColor) {
     const groups = new Map<string, (typeof entries)[number]>();
-    const order: string[] = [];
+    const top = new Map<string, number>();
     entries.forEach((entry, index) => {
       // Se agrupa por familia de color, no por hex exacto: una ilustración
       // trae decenas de blancos y grises casi idénticos que son la misma tinta.
@@ -303,9 +333,13 @@ export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
         groupedPaths += 1;
       } else {
         groups.set(key, { ...entry, rings: [...entry.rings] });
-        order.push(key);
       }
+      // Una tinta se apila donde aparece por última vez. Si se apilara donde
+      // aparece por primera vez, las partes que el dibujo pinta por encima de
+      // otra tinta (los ojos sobre la cara) las borraría el recorte.
+      top.set(key, index);
     });
+    const order = [...groups.keys()].sort((a, b) => (top.get(a) ?? 0) - (top.get(b) ?? 0));
     entries.length = 0;
     entries.push(...order.map((key) => groups.get(key)!));
   }
@@ -330,7 +364,7 @@ export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
 
   const used = new Map<string, number>();
   const nameFor = (entry: (typeof entries)[number]) => {
-    if (!groupByColor) return entry.name;
+    if (!groupByColor || entry.name === 'Dibujo') return entry.name;
     const base = colorName(entry.color);
     const seen = (used.get(base) ?? 0) + 1;
     used.set(base, seen);
@@ -358,6 +392,7 @@ export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
     id: `layer-${index}-${Math.random().toString(36).slice(2, 8)}`,
     name: nameFor(entry),
     preview: previewPath(shapesByEntry[index]),
+    area: shapesArea(shapesByEntry[index]),
     shapes: shapesByEntry[index],
     color: entry.color,
     mode: index === backgroundIndex ? 'hidden' : 'relief',

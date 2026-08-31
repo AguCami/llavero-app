@@ -49,20 +49,31 @@ relativas, así que también funciona en la raíz de un dominio propio.
 1. **Cargá tu SVG** (o tocá «Probar ejemplo»). Cada trazo del archivo se
    convierte en una capa editable.
 2. **Elegí el tamaño**: ancho en milímetros, rotación y espejado.
-3. **Configurá la base**:
+3. **Elegí el estilo**, que es la decisión que más cambia el resultado:
+   - *Relieve*: todo el dibujo en una sola pieza levantada sobre la base. Lo
+     más simple; va bien con logos macizos.
+   - *Grabado*: la placa toma la silueta del dibujo y sus líneas quedan
+     hundidas. Un solo color y se lee bien: es lo que mejor funciona con
+     ilustraciones con detalle.
+   - *Multicolor*: una capa por color, apiladas como las pinta el SVG.
+   - *Trazo a trazo*: una capa por cada trazo, sin fundir nada.
+
+   El estilo sólo fija el punto de partida: después se toca capa por capa.
+
+4. **Configurá la base**:
    - *Contorno*: sigue la silueta del dibujo con un margen uniforme, al estilo
      sticker. Es el modo recomendado.
    - *Silueta*: la placa es exactamente la silueta del dibujo.
    - *Rectángulo* / *Círculo*: placa geométrica con margen.
    - *Sin base*: sólo las formas, sin placa (tienen que solaparse entre sí para
      que salga una única pieza).
-4. **Ajustá la anilla**: en modo *Pestaña* añade material fundido con la placa
+5. **Ajustá la anilla**: en modo *Pestaña* añade material fundido con la placa
    (con un radio de acuerdo en la unión, que es donde más se rompen los
    llaveros); en modo *Agujero* sólo perfora la pieza que ya hay. Se controlan
    el diámetro interior (por donde pasa la argolla), el exterior, la dirección
    y la distancia al borde: positiva la saca hacia afuera, negativa la mete
    dentro. Si un relieve queda encima del agujero, también se perfora.
-5. **Editá cada capa**. Los trazos llegan agrupados por familia de color, así
+6. **Editá cada capa**. Los trazos llegan agrupados por familia de color, así
    que una ilustración de 155 `path` entra como tres capas con nombre
    reconocible («Rojo», «Azul oscuro»…). Dentro de cada capa las formas se
    funden en un sólido, y cada capa se recorta con las que tiene encima, igual
@@ -75,11 +86,14 @@ relativas, así que también funciona en la raíz de un dominio propio.
    - *Relieve*: sobresale por encima de la base, con altura y bisel propios.
    - *Grabado*: se hunde en la base a la profundidad indicada.
    - *Calado*: atraviesa la placa de lado a lado.
+   - *Sólo base*: no añade volumen; la forma sólo cuenta para el contorno de
+     la base. Es lo que deja que el relleno de un dibujo sea la placa y sólo
+     sus líneas queden grabadas.
    - *Oculta*: no se incluye en el modelo.
 
    En *Mover y ajustar* cada trazo se desplaza, se agranda y se gira por su
    cuenta, sin tocar el resto del dibujo.
-6. **Descargá el STL**. «STL por color» exporta un archivo por color, para
+7. **Descargá el STL**. «STL por color» exporta un archivo por color, para
    impresión multimaterial o para imprimir cada pieza en un filamento distinto.
 
 ## Preparar el SVG

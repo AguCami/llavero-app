@@ -6,6 +6,7 @@ const MODES: { value: LayerMode; label: string; title: string }[] = [
   { value: 'relief', label: 'Relieve', title: 'Sobresale por encima de la base' },
   { value: 'engrave', label: 'Grabado', title: 'Se hunde en la base' },
   { value: 'cut', label: 'Calado', title: 'Atraviesa la base de lado a lado' },
+  { value: 'flat', label: 'Sólo base', title: 'No añade volumen: sólo cuenta para el contorno de la base' },
   { value: 'hidden', label: 'Oculta', title: 'No se incluye en el modelo' },
 ];
 
@@ -13,6 +14,7 @@ const MODE_LABEL: Record<LayerMode, string> = {
   relief: 'Relieve',
   engrave: 'Grabado',
   cut: 'Calado',
+  flat: 'Sólo base',
   hidden: 'Oculta',
 };
 
@@ -47,7 +49,7 @@ export function LayerList({ layers, aspect, openId, onOpen, onChange, onChangeAl
     <div className="layers">
       <div className="layers__bulk">
         <span>Todas:</span>
-        {MODES.filter((mode) => mode.value !== 'hidden').map((mode) => (
+        {MODES.filter((mode) => mode.value === 'relief' || mode.value === 'engrave' || mode.value === 'cut').map((mode) => (
           <button key={mode.value} type="button" onClick={() => onChangeAll({ mode: mode.value })}>
             {mode.label}
           </button>
@@ -105,7 +107,7 @@ export function LayerList({ layers, aspect, openId, onOpen, onChange, onChangeAl
                   />
                 ) : null}
 
-                {layer.mode !== 'hidden' ? (
+                {layer.mode !== 'hidden' && layer.mode !== 'flat' ? (
                   <>
                     <NumberField
                       label="Mover horizontal"
