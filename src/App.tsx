@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BufferGeometry, Group, Material, Mesh } from 'three';
+import { Color } from 'three';
+import type { BufferGeometry, Group, Material, Mesh, MeshStandardMaterial } from 'three';
 import { DropZone } from './components/DropZone';
 import { LayerList } from './components/LayerList';
 import { Viewer, type ViewerHandle } from './components/Viewer';
@@ -11,6 +12,7 @@ import { parseSvg } from './lib/svg';
 import { DEFAULT_SETTINGS, type BaseMode, type Layer, type ModelSettings } from './lib/types';
 
 const SETTINGS_KEY = 'llavero3d.settings.v1';
+const BLACK = new Color('#000000');
 
 const BASE_MODES: { value: BaseMode; label: string; title: string }[] = [
   { value: 'outline', label: 'Contorno', title: 'Sigue la silueta del dibujo con un margen uniforme' },
@@ -49,6 +51,10 @@ function disposeGroup(group: Group) {
 
 export default function App() {
   const [layers, setLayers] = useState<Layer[]>([]);
+  const [source, setSource] = useState<{ text: string; name: string } | null>(null);
+  const [groupByColor, setGroupByColor] = useState(true);
+  const [aspect, setAspect] = useState(1);
+  const [openLayer, setOpenLayer] = useState<string | null>(null);
   const [settings, setSettings] = useState<ModelSettings>(loadSettings);
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,14 +72,20 @@ export default function App() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [settings]);
 
-  const loadSvg = useCallback((text: string, name: string) => {
+  const loadSvg = useCallback((text: string, name: string, grouped: boolean, keepFraming = false) => {
     try {
-      const parsed = parseSvg(text);
-      needsFramingRef.current = true;
+      const parsed = parseSvg(text, grouped);
+      if (!keepFraming) needsFramingRef.current = true;
       setLayers(parsed.layers);
+      setAspect(parsed.aspect);
+      setOpenLayer(null);
+      setSource({ text, name });
       setFileName(name);
       setError(null);
       const info: string[] = [];
+      if (parsed.groupedPaths) {
+        info.push(`Se agruparon ${parsed.groupedPaths + parsed.layers.length} trazos en ${parsed.layers.length} capas por color.`);
+      }
       if (parsed.backgroundLayer) {
         info.push(
           `«${parsed.backgroundLayer}» parece el rectángulo de fondo del archivo y se ocultó. Si era parte del diseño, cambiale el modo a Relieve en Capas.`,
@@ -104,10 +116,10 @@ export default function App() {
       }
       file
         .text()
-        .then((text) => loadSvg(text, file.name.replace(/\.svg$/i, '')))
+        .then((text) => loadSvg(text, file.name.replace(/\.svg$/i, ''), groupByColor))
         .catch(() => setError('No se pudo leer el archivo.'));
     },
-    [loadSvg],
+    [loadSvg, groupByColor],
   );
 
   // El modelo se reconstruye con un pequeño retardo: rasterizar el contorno es caro.
@@ -154,6 +166,33 @@ export default function App() {
     },
     [],
   );
+
+  const changeGrouping = useCallback(
+    (grouped: boolean) => {
+      setGroupByColor(grouped);
+      if (source) loadSvg(source.text, source.name, grouped, true);
+    },
+    [loadSvg, source],
+  );
+
+  const updateAllLayers = useCallback((patch: Partial<Layer>) => {
+    setLayers((prev) => prev.map((layer) => ({ ...layer, ...patch })));
+  }, []);
+
+  // La capa abierta se resalta en el 3D para saber cuál se está tocando.
+  useEffect(() => {
+    if (!model) return;
+    model.traverse((object) => {
+      const mesh = object as Mesh;
+      if (!mesh.isMesh) return;
+      const material = mesh.material as MeshStandardMaterial;
+      if (!material.emissive) return;
+      const selected = !!openLayer && mesh.name === `capa-${openLayer}`;
+      // Brilla en su propio color: se distingue sin que parezca otro color.
+      material.emissive.copy(selected ? material.color : BLACK);
+      material.emissiveIntensity = selected ? 0.45 : 0;
+    });
+  }, [model, openLayer]);
 
   const updateLayer = useCallback((id: string, patch: Partial<Layer>) => {
     setLayers((prev) => prev.map((layer) => (layer.id === id ? { ...layer, ...patch } : layer)));
@@ -219,7 +258,7 @@ export default function App() {
 
       <div className="layout">
         <aside className="sidebar">
-          <DropZone fileName={fileName} onFile={handleFile} onSample={() => loadSvg(SAMPLE_SVG, SAMPLE_NAME)} />
+          <DropZone fileName={fileName} onFile={handleFile} onSample={() => loadSvg(SAMPLE_SVG, SAMPLE_NAME, groupByColor)} />
 
           {error ? <p className="alert alert--error">{error}</p> : null}
           {notes.map((note) => (
@@ -403,7 +442,20 @@ export default function App() {
               </Panel>
 
               <Panel title="Capas" aside={<span className="badge">{layers.length}</span>}>
-                <LayerList layers={layers} onChange={updateLayer} onMove={moveLayer} />
+                <Toggle
+                  label="Agrupar trazos por color"
+                  checked={groupByColor}
+                  onChange={changeGrouping}
+                />
+                <LayerList
+                  layers={layers}
+                  aspect={aspect}
+                  openId={openLayer}
+                  onOpen={setOpenLayer}
+                  onChange={updateLayer}
+                  onChangeAll={updateAllLayers}
+                  onMove={moveLayer}
+                />
               </Panel>
             </>
           ) : null}

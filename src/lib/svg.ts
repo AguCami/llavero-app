@@ -1,4 +1,4 @@
-import { Color, Path, Shape, Vector2 } from 'three';
+import { Color, Path, Shape, SRGBColorSpace, Vector2 } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import { DEFAULT_LAYER_HEIGHT, DEFAULT_LAYER_TRANSFORM, type Bounds, type Layer } from './types';
 
@@ -9,6 +9,8 @@ const EPSILON = 1e-6;
 
 export interface ParsedSvg {
   layers: Layer[];
+  /** Trazos que se fundieron al agrupar por color. */
+  groupedPaths: number;
   /** Relación alto/ancho del dibujo original. */
   aspect: number;
   /** Trazos que sólo tenían `stroke` y se rellenaron para poder extruirlos. */
@@ -187,13 +189,51 @@ function colorOf(path: { color?: Color }, style: Record<string, string> | undefi
   return path.color ? `#${path.color.getHexString()}` : '#8b8b8b';
 }
 
+/** Nombre corriente de un color, para que las capas se reconozcan de un vistazo. */
+function colorName(hex: string): string {
+  const hsl = { h: 0, s: 0, l: 0 };
+  // Sin indicar el espacio, `getHSL` responde en lineal-sRGB y los tonos salen
+  // corridos y oscurecidos: un naranja se leería como rojo.
+  new Color(hex).getHSL(hsl, SRGBColorSpace);
+  const hue = hsl.h * 360;
+  if (hsl.l < 0.1) return 'Negro';
+  if (hsl.l > 0.9 && hsl.s < 0.32) return 'Blanco';
+  if (hsl.s < 0.15) return hsl.l > 0.62 ? 'Gris claro' : hsl.l < 0.34 ? 'Gris oscuro' : 'Gris';
+
+  const scale: [number, string][] = [
+    [15, 'Rojo'],
+    [42, 'Naranja'],
+    [66, 'Amarillo'],
+    [150, 'Verde'],
+    [196, 'Turquesa'],
+    [255, 'Azul'],
+    [288, 'Violeta'],
+    [335, 'Rosa'],
+    [360, 'Rojo'],
+  ];
+  const base = scale.find(([max]) => hue <= max)?.[1] ?? 'Color';
+  if (hsl.l > 0.74) return `${base} claro`;
+  if (hsl.l < 0.3) return `${base} oscuro`;
+  return base;
+}
+
+/** Ruta SVG de la capa, en el mismo encuadre para todas (Y hacia abajo). */
+function previewPath(rings: RawShape[], transform: (p: Vector2) => Vector2): string {
+  const ring = (points: Vector2[]) =>
+    points
+      .map(transform)
+      .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(4)} ${(-p.y).toFixed(4)}`)
+      .join('') + 'Z';
+  return rings.map((raw) => [ring(raw.contour), ...raw.holes.map(ring)].join('')).join('');
+}
+
 /**
  * Convierte un SVG en capas listas para extruir.
  *
  * El dibujo se normaliza: eje Y hacia arriba, centrado en el origen y con
  * ancho 1. El tamaño real en milímetros se aplica al construir el modelo.
  */
-export function parseSvg(svgText: string): ParsedSvg {
+export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
   const data = new SVGLoader().parse(svgText);
   if (!data.paths.length) {
     throw new Error('El archivo no contiene trazos vectoriales. Exportalo como SVG con formas, no como imagen incrustada.');
@@ -234,10 +274,35 @@ export function parseSvg(svgText: string): ParsedSvg {
     throw new Error('No se pudo extraer ninguna forma cerrada del SVG.');
   }
 
-  // Un fondo detectado se oculta y, sobre todo, no cuenta para el encuadre:
-  // si contase, el dibujo saldría más chico que el ancho pedido.
-  const backgroundIndex =
-    entries.length > 1 && looksLikeBackground(entries[0].rings, entries.slice(1).flatMap((e) => e.rings)) ? 0 : -1;
+  // El fondo se detecta antes de agrupar: si no, podría fundirse con una
+  // forma del mismo color y dejaría de poder ocultarse por su cuenta.
+  const backgroundFirst =
+    entries.length > 1 && looksLikeBackground(entries[0].rings, entries.slice(1).flatMap((e) => e.rings));
+
+  // Agrupar por color deja una capa por tinta en vez de una por trazo: un
+  // logo real trae decenas de trazos y la lista se vuelve inmanejable.
+  let groupedPaths = 0;
+  if (groupByColor) {
+    const groups = new Map<string, (typeof entries)[number]>();
+    const order: string[] = [];
+    entries.forEach((entry, index) => {
+      const key = backgroundFirst && index === 0 ? '#fondo' : entry.color;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.rings.push(...entry.rings);
+        groupedPaths += 1;
+      } else {
+        groups.set(key, { ...entry, rings: [...entry.rings] });
+        order.push(key);
+      }
+    });
+    entries.length = 0;
+    entries.push(...order.map((key) => groups.get(key)!));
+  }
+
+  // El fondo se oculta y, sobre todo, no cuenta para el encuadre: si contase,
+  // el dibujo saldría más chico que el ancho pedido.
+  const backgroundIndex = backgroundFirst ? 0 : -1;
   const visibleEntries = entries.filter((_, index) => index !== backgroundIndex);
 
   const bounds = boundsOf(visibleEntries.flatMap((e) => e.rings));
@@ -253,9 +318,19 @@ export function parseSvg(svgText: string): ParsedSvg {
   // El SVG tiene el eje Y hacia abajo: al invertirlo queda con Y hacia arriba.
   const transform = (p: Vector2) => new Vector2((p.x - cx) * scale, -(p.y - cy) * scale);
 
+  const used = new Map<string, number>();
+  const nameFor = (entry: (typeof entries)[number]) => {
+    if (!groupByColor) return entry.name;
+    const base = colorName(entry.color);
+    const seen = (used.get(base) ?? 0) + 1;
+    used.set(base, seen);
+    return seen === 1 ? base : `${base} ${seen}`;
+  };
+
   const layers: Layer[] = entries.map((entry, index) => ({
     id: `layer-${index}-${Math.random().toString(36).slice(2, 8)}`,
-    name: entry.name,
+    name: nameFor(entry),
+    preview: previewPath(entry.rings, transform),
     shapes: entry.rings.map((ring) => ringsToShape(ring, transform)),
     color: entry.color,
     mode: index === backgroundIndex ? 'hidden' : 'relief',
@@ -270,6 +345,7 @@ export function parseSvg(svgText: string): ParsedSvg {
     strokeOnlyPaths,
     droppedPaths,
     invisiblePaths,
+    groupedPaths,
     backgroundLayer: backgroundIndex >= 0 ? layers[backgroundIndex].name : null,
   };
 }

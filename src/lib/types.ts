@@ -9,6 +9,8 @@ export interface Layer {
   name: string;
   /** Formas ya centradas y escaladas a mm, con sus huecos internos resueltos. */
   shapes: Shape[];
+  /** Silueta de la capa como ruta SVG, para la miniatura de la lista. */
+  preview: string;
   /** Color original del SVG, usado como color de vista previa. */
   color: string;
   mode: LayerMode;

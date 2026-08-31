@@ -62,7 +62,12 @@ relativas, así que también funciona en la raíz de un dominio propio.
    el diámetro interior (por donde pasa la argolla), el exterior, la dirección
    y la distancia al borde: positiva la saca hacia afuera, negativa la mete
    dentro. Si un relieve queda encima del agujero, también se perfora.
-5. **Editá cada capa**:
+5. **Editá cada capa**. Los trazos llegan agrupados por color, así que un logo
+   de decenas de `path` entra como tres o cuatro capas con nombre reconocible
+   («Rojo», «Azul oscuro»…). El interruptor *Agrupar trazos por color* lo
+   desactiva si necesitás tocar cada trazo por separado. Cada fila muestra una
+   miniatura con la parte del dibujo que le toca, y al abrirla se resalta en el
+   3D. Con *Todas* se cambia el modo de golpe.
    - *Relieve*: sobresale por encima de la base, con altura y bisel propios.
    - *Grabado*: se hunde en la base a la profundidad indicada.
    - *Calado*: atraviesa la placa de lado a lado.
