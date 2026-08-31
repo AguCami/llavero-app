@@ -1,6 +1,10 @@
 import { Color, Path, Shape, SRGBColorSpace, Vector2 } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
+import { outlineShapes } from './outline';
 import { DEFAULT_LAYER_HEIGHT, DEFAULT_LAYER_TRANSFORM, type Bounds, type Layer } from './types';
+
+/** Detalle del rasterizado al fundir y recortar capas (píxeles del lado mayor). */
+const MERGE_DETAIL = 1100;
 
 /** Cuántos segmentos se usan al convertir curvas Bézier en polilíneas. */
 const CURVE_SEGMENTS = 40;
@@ -11,6 +15,8 @@ export interface ParsedSvg {
   layers: Layer[];
   /** Trazos que se fundieron al agrupar por color. */
   groupedPaths: number;
+  /** Capas descartadas por quedar tapadas del todo por las de encima. */
+  coveredLayers: number;
   /** Relación alto/ancho del dibujo original. */
   aspect: number;
   /** Trazos que sólo tenían `stroke` y se rellenaron para poder extruirlos. */
@@ -218,13 +224,15 @@ function colorName(hex: string): string {
 }
 
 /** Ruta SVG de la capa, en el mismo encuadre para todas (Y hacia abajo). */
-function previewPath(rings: RawShape[], transform: (p: Vector2) => Vector2): string {
+function previewPath(shapes: Shape[]): string {
   const ring = (points: Vector2[]) =>
-    points
-      .map(transform)
-      .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(4)} ${(-p.y).toFixed(4)}`)
-      .join('') + 'Z';
-  return rings.map((raw) => [ring(raw.contour), ...raw.holes.map(ring)].join('')).join('');
+    points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(4)} ${(-p.y).toFixed(4)}`).join('') + 'Z';
+  return shapes
+    .map((shape) => {
+      const { shape: contour, holes } = shape.extractPoints(12);
+      return [ring(contour as Vector2[]), ...(holes as Vector2[][]).map(ring)].join('');
+    })
+    .join('');
 }
 
 /**
@@ -286,7 +294,9 @@ export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
     const groups = new Map<string, (typeof entries)[number]>();
     const order: string[] = [];
     entries.forEach((entry, index) => {
-      const key = backgroundFirst && index === 0 ? '#fondo' : entry.color;
+      // Se agrupa por familia de color, no por hex exacto: una ilustración
+      // trae decenas de blancos y grises casi idénticos que son la misma tinta.
+      const key = backgroundFirst && index === 0 ? '#fondo' : colorName(entry.color);
       const existing = groups.get(key);
       if (existing) {
         existing.rings.push(...entry.rings);
@@ -327,11 +337,28 @@ export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
     return seen === 1 ? base : `${base} ${seen}`;
   };
 
+  let shapesByEntry = entries.map((entry) => entry.rings.map((ring) => ringsToShape(ring, transform)));
+
+  if (groupByColor) {
+    // Cada capa se funde en un sólido y se recorta con las de encima, igual
+    // que las pinta el SVG. Si no, decenas de formas superpuestas comparten
+    // caras y el resultado se ve rayado (y el STL queda lleno de tabiques).
+    shapesByEntry = shapesByEntry.map((shapes, index) => {
+      const above = shapesByEntry.slice(index + 1).flat();
+      return outlineShapes(shapes, {
+        margin: 0,
+        smoothing: 0,
+        subtract: above,
+        detail: MERGE_DETAIL,
+      });
+    });
+  }
+
   const layers: Layer[] = entries.map((entry, index) => ({
     id: `layer-${index}-${Math.random().toString(36).slice(2, 8)}`,
     name: nameFor(entry),
-    preview: previewPath(entry.rings, transform),
-    shapes: entry.rings.map((ring) => ringsToShape(ring, transform)),
+    preview: previewPath(shapesByEntry[index]),
+    shapes: shapesByEntry[index],
     color: entry.color,
     mode: index === backgroundIndex ? 'hidden' : 'relief',
     height: DEFAULT_LAYER_HEIGHT,
@@ -339,13 +366,16 @@ export function parseSvg(svgText: string, groupByColor = true): ParsedSvg {
     ...DEFAULT_LAYER_TRANSFORM,
   }));
 
+  const visible = layers.filter((layer) => layer.shapes.length > 0);
+
   return {
-    layers,
+    layers: visible,
     aspect: rawHeight / rawWidth,
     strokeOnlyPaths,
     droppedPaths,
     invisiblePaths,
     groupedPaths,
+    coveredLayers: layers.length - visible.length,
     backgroundLayer: backgroundIndex >= 0 ? layers[backgroundIndex].name : null,
   };
 }

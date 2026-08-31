@@ -350,6 +350,8 @@ export interface OutlineOptions {
   fillet?: number;
   /** Formas a restar del resultado (agujeros de cualquier solape). */
   subtract?: Shape[];
+  /** Píxeles del lado mayor. Más detalle cuesta más tiempo. */
+  detail?: number;
 }
 
 /**
@@ -375,7 +377,7 @@ export function outlineShapes(shapes: Shape[], options: OutlineOptions): Shape[]
   // La resolución se fija sobre el dibujo, de modo que un margen grande no baje el detalle.
   const drawingExtent = Math.max(box.maxX - box.minX, box.maxY - box.minY, 1e-6);
   const extent = drawingExtent + 2 * grown;
-  const detail = Math.round(700 * (extent / drawingExtent));
+  const detail = Math.round((options.detail ?? 700) * (extent / drawingExtent));
   const step = extent / Math.min(MAX_RESOLUTION, Math.max(MIN_RESOLUTION, detail));
   // Se deja un borde de varios píxeles para que las isolíneas cierren dentro de la rejilla.
   const padding = grown + step * 4;

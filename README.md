@@ -62,10 +62,14 @@ relativas, así que también funciona en la raíz de un dominio propio.
    el diámetro interior (por donde pasa la argolla), el exterior, la dirección
    y la distancia al borde: positiva la saca hacia afuera, negativa la mete
    dentro. Si un relieve queda encima del agujero, también se perfora.
-5. **Editá cada capa**. Los trazos llegan agrupados por color, así que un logo
-   de decenas de `path` entra como tres o cuatro capas con nombre reconocible
-   («Rojo», «Azul oscuro»…). El interruptor *Agrupar trazos por color* lo
-   desactiva si necesitás tocar cada trazo por separado. Cada fila muestra una
+5. **Editá cada capa**. Los trazos llegan agrupados por familia de color, así
+   que una ilustración de 155 `path` entra como tres capas con nombre
+   reconocible («Rojo», «Azul oscuro»…). Dentro de cada capa las formas se
+   funden en un sólido, y cada capa se recorta con las que tiene encima, igual
+   que las pinta el SVG: sin eso, decenas de formas superpuestas comparten
+   caras, el modelo se ve rayado y el STL sale lleno de tabiques. El
+   interruptor *Agrupar trazos por color* lo desactiva si necesitás tocar cada
+   trazo por separado. Cada fila muestra una
    miniatura con la parte del dibujo que le toca, y al abrirla se resalta en el
    3D. Con *Todas* se cambia el modo de golpe.
    - *Relieve*: sobresale por encima de la base, con altura y bisel propios.

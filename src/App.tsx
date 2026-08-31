@@ -64,6 +64,7 @@ export default function App() {
   const [buildWarnings, setBuildWarnings] = useState<string[]>([]);
   const [showBed, setShowBed] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const viewerRef = useRef<ViewerHandle>(null);
   const displayedRef = useRef<Group | null>(null);
   const needsFramingRef = useRef(true);
@@ -72,7 +73,7 @@ export default function App() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [settings]);
 
-  const loadSvg = useCallback((text: string, name: string, grouped: boolean, keepFraming = false) => {
+  const runParse = useCallback((text: string, name: string, grouped: boolean, keepFraming: boolean) => {
     try {
       const parsed = parseSvg(text, grouped);
       if (!keepFraming) needsFramingRef.current = true;
@@ -84,7 +85,13 @@ export default function App() {
       setError(null);
       const info: string[] = [];
       if (parsed.groupedPaths) {
-        info.push(`Se agruparon ${parsed.groupedPaths + parsed.layers.length} trazos en ${parsed.layers.length} capas por color.`);
+        const total = parsed.groupedPaths + parsed.layers.length + parsed.coveredLayers;
+        info.push(
+          `Se agruparon ${total} trazos en ${parsed.layers.length} capas por color, fundiendo lo que se superpone.`,
+        );
+      }
+      if (parsed.coveredLayers) {
+        info.push(`${parsed.coveredLayers} capa(s) quedaban tapadas del todo por las de encima y se descartaron.`);
       }
       if (parsed.backgroundLayer) {
         info.push(
@@ -105,8 +112,17 @@ export default function App() {
       setNotes(info);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo leer el SVG.');
+    } finally {
+      setLoading(false);
     }
   }, []);
+
+  const loadSvg = useCallback((text: string, name: string, grouped: boolean, keepFraming = false) => {
+    // Fundir las capas de un SVG pesado lleva segundos y bloquea la página:
+    // primero se pinta el aviso y recién después se procesa.
+    setLoading(true);
+    setTimeout(() => runParse(text, name, grouped, keepFraming), 30);
+  }, [runParse]);
 
   const handleFile = useCallback(
     (file: File) => {
@@ -481,7 +497,9 @@ export default function App() {
             <Toggle label="Cama de impresión" checked={showBed} onChange={setShowBed} />
           </div>
 
-          {busy ? <div className="stage__busy">Generando modelo…</div> : null}
+          {loading || busy ? (
+            <div className="stage__busy">{loading ? 'Leyendo el SVG…' : 'Generando modelo…'}</div>
+          ) : null}
 
           {buildWarnings.length ? (
             <div className="stage__warnings">

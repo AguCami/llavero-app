@@ -504,7 +504,9 @@ export function buildModel(layers: Layer[], settings: ModelSettings): BuiltModel
     // también esconde el chaflán inferior del relieve.
     const sink = support > 0 ? Math.min(Math.max(bevel, MIN_OVERLAP), support * 0.5) : 0;
     const geometry = extrude(shapes, layer.height + sink, bevel, report);
-    group.add(makeMesh(geometry, layer.color, reliefBottom - sink, `capa-${layer.id}`, index + 1));
+    // El sesgo de profundidad es sólo para la vista previa; pasado de cierto
+    // punto deforma el z-buffer, así que se limita.
+    group.add(makeMesh(geometry, layer.color, reliefBottom - sink, `capa-${layer.id}`, Math.min(index + 1, 6)));
   });
 
   if (report.bevelDropped) {
